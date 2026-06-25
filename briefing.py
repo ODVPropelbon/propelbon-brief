@@ -241,7 +241,7 @@ def generate_briefing(
 ) -> str:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(
-        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         system_instruction=SYSTEM_PROMPT,
     )
     user_prompt = build_user_prompt(search_results, source_texts, published_urls, published_topics)
