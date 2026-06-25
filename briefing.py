@@ -15,7 +15,8 @@ import httpx
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from tavily import TavilyClient
@@ -239,13 +240,15 @@ def generate_briefing(
     published_urls: set[str],
     published_topics: list[str],
 ) -> str:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(
-        "gemini-1.5-flash",
-        system_instruction=SYSTEM_PROMPT,
-    )
+    client = genai.Client(api_key=GEMINI_API_KEY)
     user_prompt = build_user_prompt(search_results, source_texts, published_urls, published_topics)
-    response = model.generate_content(user_prompt)
+    response = client.models.generate_content(
+        model="gemini-1.5-flash",
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+        ),
+        contents=user_prompt,
+    )
     return response.text.strip()
 
 
