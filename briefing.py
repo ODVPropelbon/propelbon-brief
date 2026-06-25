@@ -2,7 +2,7 @@
 Propelbon Daily Brief — script autónomo (stack 100% gratuito)
 Requisitos: ver requirements.txt
 Secrets necesarios (env vars o GitHub Secrets):
-  GEMINI_API_KEY       (Google AI Studio — gratis: aistudio.google.com)
+  GROQ_API_KEY         (Groq — gratis: console.groq.com, modelo llama-3.3-70b)
   SLACK_BOT_TOKEN      (token del bot con permisos channels:history + chat:write)
   SLACK_CHANNEL_ID     (C0B93TX9SQL)
   SLACK_WEBHOOK_URL    (opcional, para enviar como bot "Propelbon Radar")
@@ -15,8 +15,7 @@ import httpx
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from google import genai
-from google.genai import types
+from groq import Groq
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from tavily import TavilyClient
@@ -24,17 +23,16 @@ from tavily import TavilyClient
 
 # ── Configuración ────────────────────────────────────────────────────────────
 
-GEMINI_API_KEY    = os.environ["GEMINI_API_KEY"]
+GROQ_API_KEY      = os.environ["GROQ_API_KEY"]
 SLACK_BOT_TOKEN   = os.environ["SLACK_BOT_TOKEN"]
 SLACK_CHANNEL_ID  = os.environ.get("SLACK_CHANNEL_ID", "C0B93TX9SQL")
-SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")  # opcional
+SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
 TAVILY_API_KEY    = os.environ["TAVILY_API_KEY"]
 
 MADRID_TZ = ZoneInfo("Europe/Madrid")
 TODAY = datetime.now(MADRID_TZ).strftime("%d %B %Y")
 TODAY_SHORT = datetime.now(MADRID_TZ).strftime("%-d %b %Y")
 
-# Fuentes a rotar cada día (el script elige 3 de cada pool)
 AFFILIATE_SOURCES = [
     "https://hellopartner.com/tag/newsdesk/",
     "https://www.affiversemedia.com/news/",
@@ -53,7 +51,6 @@ ECOMMERCE_SOURCES = [
     "https://practicalecommerce.com/",
 ]
 
-# Día de la semana como índice para rotar fuentes (0=lunes)
 _dow = datetime.now(MADRID_TZ).weekday()
 SELECTED_AFFILIATE = AFFILIATE_SOURCES[(_dow * 3) % len(AFFILIATE_SOURCES):(_dow * 3) % len(AFFILIATE_SOURCES) + 3]
 SELECTED_ECOMMERCE = ECOMMERCE_SOURCES[(_dow * 3) % len(ECOMMERCE_SOURCES):(_dow * 3) % len(ECOMMERCE_SOURCES) + 3]
@@ -62,7 +59,6 @@ SELECTED_ECOMMERCE = ECOMMERCE_SOURCES[(_dow * 3) % len(ECOMMERCE_SOURCES):(_dow
 # ── PASO 0: Leer historial de Slack ─────────────────────────────────────────
 
 def get_published_urls_and_topics(limit_messages: int = 200) -> tuple[set[str], list[str]]:
-    """Devuelve (conjunto de URLs ya publicadas, lista de titulares ya publicados)."""
     import re
     client = WebClient(token=SLACK_BOT_TOKEN)
     urls: set[str] = set()
@@ -81,10 +77,8 @@ def get_published_urls_and_topics(limit_messages: int = 200) -> tuple[set[str], 
 
         for msg in resp.get("messages", []):
             text = msg.get("text", "")
-            # URLs en formato <URL|texto>
             for url in re.findall(r"<(https?://[^|>]+)[|>]", text):
                 urls.add(url)
-            # Titulares en negrita *Titular*
             for title in re.findall(r"\*([^*]{10,120})\*", text):
                 topics.append(title.strip())
 
@@ -99,7 +93,6 @@ def get_published_urls_and_topics(limit_messages: int = 200) -> tuple[set[str], 
 # ── PASO 1: Búsquedas de noticias ───────────────────────────────────────────
 
 def search_news(tavily: TavilyClient) -> list[dict]:
-    """Lanza búsquedas en paralelo y devuelve lista de resultados."""
     queries = [
         f"ecommerce news today {TODAY}",
         f"ecommerce España noticias {TODAY}",
@@ -122,7 +115,6 @@ def search_news(tavily: TavilyClient) -> list[dict]:
 
 
 async def fetch_source(client: httpx.AsyncClient, url: str) -> str:
-    """Hace fetch de una URL y devuelve el texto (primeros 3000 chars)."""
     try:
         r = await client.get(url, timeout=15, follow_redirects=True)
         return r.text[:3000]
@@ -131,7 +123,6 @@ async def fetch_source(client: httpx.AsyncClient, url: str) -> str:
 
 
 async def fetch_all_sources() -> dict[str, str]:
-    """Fetch paralelo de todas las fuentes seleccionadas."""
     all_sources = SELECTED_AFFILIATE + SELECTED_ECOMMERCE
     async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0"}) as client:
         tasks = {url: fetch_source(client, url) for url in all_sources}
@@ -142,7 +133,7 @@ async def fetch_all_sources() -> dict[str, str]:
     return results
 
 
-# ── PASO 2-4: Gemini redacta el briefing ────────────────────────────────────
+# ── PASO 2-4: Groq (Llama 3.3 70B) redacta el briefing ─────────────────────
 
 SYSTEM_PROMPT = """Eres el asistente de noticias de Propelbon, empresa española de marketing de afiliación y performance que trabaja con anunciantes ecommerce en España y Europa.
 
@@ -156,25 +147,15 @@ Estilo:
 Formato de salida: mrkdwn de Slack (usar *negrita*, _cursiva_, <URL|texto>).
 """
 
-def build_user_prompt(
-    search_results: list[dict],
-    source_texts: dict[str, str],
-    published_urls: set[str],
-    published_topics: list[str],
-) -> str:
-    # Serializar resultados de búsqueda
+def build_user_prompt(search_results, source_texts, published_urls, published_topics):
     search_block = "\n\n".join([
         f"TÍTULO: {r.get('title','')}\nURL: {r.get('url','')}\nRESUMEN: {r.get('content','')[:400]}"
         for r in search_results
     ])
-
-    # Serializar fuentes directas
     sources_block = "\n\n---\n\n".join([
         f"FUENTE: {url}\n{text[:1500]}"
         for url, text in source_texts.items()
     ])
-
-    # Historial de URLs ya publicadas (últimas 100 para no saturar el prompt)
     published_list = "\n".join(list(published_urls)[:100])
     published_topics_list = "\n".join(published_topics[:80])
 
@@ -234,36 +215,27 @@ IMPORTANTE: devuelve SOLO el mensaje mrkdwn, sin texto previo ni posterior.
 """
 
 
-def generate_briefing(
-    search_results: list[dict],
-    source_texts: dict[str, str],
-    published_urls: set[str],
-    published_topics: list[str],
-) -> str:
-    client = genai.Client(api_key=GEMINI_API_KEY)
+def generate_briefing(search_results, source_texts, published_urls, published_topics):
+    client = Groq(api_key=GROQ_API_KEY)
     user_prompt = build_user_prompt(search_results, source_texts, published_urls, published_topics)
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-        ),
-        contents=user_prompt,
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.5,
+        max_tokens=2000,
     )
-    return response.text.strip()
+    return response.choices[0].message.content.strip()
 
 
 # ── PASO 5: Enviar a Slack ───────────────────────────────────────────────────
 
 def send_to_slack(text: str) -> str:
-    """Intenta primero el webhook (bot Propelbon Radar), luego slack_sdk."""
-    # Opción 1: webhook (mantiene la identidad del bot)
     if SLACK_WEBHOOK_URL:
         try:
-            r = httpx.post(
-                SLACK_WEBHOOK_URL,
-                json={"text": text},
-                timeout=10,
-            )
+            r = httpx.post(SLACK_WEBHOOK_URL, json={"text": text}, timeout=10)
             if r.status_code == 200 and r.text == "ok":
                 print("[Slack] Enviado vía webhook ✓")
                 return "webhook"
@@ -272,7 +244,6 @@ def send_to_slack(text: str) -> str:
         except Exception as e:
             print(f"[Slack] Webhook error: {e}, usando bot token...")
 
-    # Opción 2: bot token
     client = WebClient(token=SLACK_BOT_TOKEN)
     resp = client.chat_postMessage(channel=SLACK_CHANNEL_ID, text=text)
     print(f"[Slack] Enviado vía bot token ✓ — {resp['message']['ts']}")
@@ -284,24 +255,20 @@ def send_to_slack(text: str) -> str:
 async def main():
     print(f"\n=== Propelbon Daily Brief — {TODAY} ===\n")
 
-    # PASO 0
     print("→ PASO 0: Leyendo historial de Slack...")
     published_urls, published_topics = get_published_urls_and_topics()
 
-    # PASO 1
     print("→ PASO 1: Buscando noticias...")
     tavily = TavilyClient(api_key=TAVILY_API_KEY)
     search_results = search_news(tavily)
     source_texts = await fetch_all_sources()
 
-    # PASO 2-4
-    print("→ PASO 2-4: Redactando briefing con Gemini Flash...")
+    print("→ PASO 2-4: Redactando briefing con Groq Llama 3.3 70B...")
     briefing = generate_briefing(search_results, source_texts, published_urls, published_topics)
     print("\n--- BRIEFING GENERADO ---")
     print(briefing)
     print("-------------------------\n")
 
-    # PASO 5
     print("→ PASO 5: Enviando a Slack...")
     send_to_slack(briefing)
     print("\n✅ Briefing enviado correctamente.\n")
