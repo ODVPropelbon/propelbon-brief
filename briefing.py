@@ -243,7 +243,7 @@ def generate_briefing(
     client = genai.Client(api_key=GEMINI_API_KEY)
     user_prompt = build_user_prompt(search_results, source_texts, published_urls, published_topics)
     response = client.models.generate_content(
-        model="gemini-1.5-flash",
+        model="gemini-2.0-flash",
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
         ),
