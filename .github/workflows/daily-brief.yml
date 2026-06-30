@@ -5,7 +5,7 @@ on:
     # 07:00 hora de Madrid (UTC+1 en invierno / UTC+2 en verano)
     # GitHub Actions usa UTC — ajustar según la época del año:
     # Verano (CEST, UTC+2): lanzar a las 06:00 UTC = 08:00 Madrid
-    - cron: '0 6 * * 1-5'   # lunes a viernes
+    # - cron: '0 6 * * 1-5'  # desactivado, usa cron-job.org
   workflow_dispatch:          # permite lanzarlo manualmente desde GitHub
 
 jobs:
