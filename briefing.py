@@ -48,38 +48,49 @@ NETWORK_BLOGS = [
 
 # ── Fuentes: blogs especializados EN + ES ──────────────────────────────────────
 INDUSTRY_BLOGS = [
+    # Internacional / UK
     "https://hellopartner.com/tag/newsdesk/",
     "https://www.affiversemedia.com/news/",
     "https://performancein.com/news/",
+    "https://www.affiliateinsider.com/category/news/",
+    "https://digiday.com/tag/affiliate-marketing/",
+    "https://econsultancy.com/topic/affiliates/",
+    "https://influencermarketinghub.com/affiliate-marketing/",
+    "https://www.clickz.com/category/affiliate-marketing/",
     "https://martech.org/topic/performance-marketing/",
     "https://www.thedrum.com/topic/performance-marketing",
     "https://www.accelerationpartners.com/resources/blog/",
     "https://www.affiliatesummit.com/blog/",
+    # España
     "https://www.marketingdirecto.com/marketing-digital/",
     "https://iabspain.es/category/noticias/",
+    "https://www.puromarketing.com/",
+    "https://www.reasonwhy.es/",
+    "https://marketing4ecommerce.net/",
 ]
 
 # ── Fuentes: ecommerce ──────────────────────────────────────────────────────────
 ECOMMERCE_SOURCES = [
+    # Europa
     "https://www.ecommercenews.eu/news/",
+    "https://retaildetail.eu/news/",
+    "https://ecommerceeurope.eu/news/",
+    "https://www.tamebay.com/",
+    "https://www.modernretail.co/topic/ecommerce/",
+    "https://www.retailgazette.co.uk/",
     "https://channelx.world",
+    "https://internetretailing.net/",
     "https://www.retaildive.com/topic/e-commerce/",
     "https://www.digitalcommerce360.com/topic/ecommerce/",
-    "https://internetretailing.net/",
     "https://practicalecommerce.com/",
+    # España
     "https://www.ecommerce-news.es/",
+    "https://www.inforetail.es/",
+    # Plataformas
     "https://www.shopify.com/blog",
 ]
 
-# Rotar fuentes por día (0=lunes): seleccionar 3 de cada pool
-_dow = datetime.now(MADRID_TZ).weekday()
-def _rotate(pool, n=3):
-    start = (_dow * n) % len(pool)
-    return (pool + pool)[start:start + n]
-
-SELECTED_NETWORKS  = _rotate(NETWORK_BLOGS, 3)
-SELECTED_INDUSTRY  = _rotate(INDUSTRY_BLOGS, 3)
-SELECTED_ECOMMERCE = _rotate(ECOMMERCE_SOURCES, 3)
+ALL_SOURCES = NETWORK_BLOGS + INDUSTRY_BLOGS + ECOMMERCE_SOURCES
 
 
 # ── PASO 0: Leer historial de Slack ────────────────────────────────────────────
@@ -190,39 +201,73 @@ def search_news(tavily: TavilyClient) -> list[dict]:
 async def fetch_source(client: httpx.AsyncClient, url: str) -> str:
     try:
         r = await client.get(url, timeout=15, follow_redirects=True)
-        return r.text[:3000]
+        # 350 chars por fuente — suficiente para ver 2-3 titulares y juzgar relevancia
+        return r.text[:350]
     except Exception as e:
-        return f"[Error fetching {url}: {e}]"
+        return ""  # silencioso: fuentes que fallen simplemente no aportan contenido
 
 
 async def fetch_all_sources() -> dict[str, str]:
-    all_sources = SELECTED_NETWORKS + SELECTED_INDUSTRY + SELECTED_ECOMMERCE
     async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; PropelbonBot/1.0)"}) as client:
-        coros = {url: fetch_source(client, url) for url in all_sources}
+        tasks = {url: fetch_source(client, url) for url in ALL_SOURCES}
         results = {}
-        for url, coro in coros.items():
+        for url, coro in tasks.items():
             results[url] = await coro
-    print(f"[HTTP] {len(results)} fuentes fetched ({len(SELECTED_NETWORKS)} redes + {len(SELECTED_INDUSTRY)} industria + {len(SELECTED_ECOMMERCE)} ecommerce)")
+    # Filtrar fuentes vacías (error o sin contenido útil)
+    results = {url: text for url, text in results.items() if text.strip()}
+    print(f"[HTTP] {len(results)}/{len(ALL_SOURCES)} fuentes con contenido")
     return results
 
 
 # ── PASO 2-4: Groq (Llama 3.3 70B) redacta el briefing ──────────────────────
 
-SYSTEM_PROMPT = """Eres el asistente de noticias de Propelbon, empresa española de marketing de afiliación y performance que trabaja con anunciantes ecommerce en España y Europa.
+SYSTEM_PROMPT = """Eres el analista de inteligencia de mercado de Propelbon.
 
-Tu tarea: redactar el briefing diario de noticias para el canal #noticias de Slack.
+## Qué es Propelbon
+Propelbon es una red de afiliación española, competidora directa de Awin, CJ, Tradedoubler, TradeTracker, impact.com, Partnerize, Webgains y Admitad. Opera exactamente igual que ellas: capta anunciantes (marcas/ecommerce), les monta y gestiona su programa de afiliación en modelo CPA (coste por adquisición), y conecta esos programas con publishers/afiliados que generan ventas.
 
-ÁMBITO GEOGRÁFICO: Prioriza noticias de España, Europa (UK, Francia, Alemania, Italia, DACH, Nordics) y mercados globales con impacto en Europa. Excluye o da muy poco peso a noticias exclusivamente del mercado estadounidense salvo que tengan impacto directo en Europa o en las redes de afiliación globales.
+Mercados principales: España y Portugal. En expansión: resto de Europa y LatAm.
+Verticales: todos (moda, electrónica, viajes, finanzas, salud, hogar, etc.). 90% CPA.
+Anunciantes: desde grandes marcas hasta pymes ecommerce.
 
-Fuentes que se consultan cada día: blogs oficiales de redes de afiliación (Awin, Tradedoubler, Admitad, impact.com, Partnerize, Webgains, TradeTracker, CJ), blogs especializados (PerformanceIN, Hello Partner, Affiverse, MarTech, Marketing Directo, IAB Spain), Twitter/X y LinkedIn de estas redes, y medios de ecommerce (eCommerce News, Retail Dive, Digital Commerce 360, etc.).
+## Objetivo de negocio de Propelbon
+El objetivo central es ganar programas de afiliación. Esto ocurre de dos formas:
+1. **Captación de nuevos anunciantes** — marcas que aún no tienen canal de afiliación y hay que convencerlas de abrirlo con Propelbon.
+2. **Migración desde competidores** — marcas que ya tienen programa en Awin, CJ, TD, TradeTracker, etc., y hay que convencerlas de moverse a Propelbon o de abrir un programa adicional.
 
-Estilo:
+Las acciones concretas que el equipo puede ejecutar esta semana son:
+- Llamar / prospectar a un tipo específico de anunciante
+- Preparar un pitch para migrar programas de una red competidora
+- Proponer un nuevo vertical o mercado a anunciantes actuales
+- Ajustar estructura de comisiones o modelo de atribución
+- Aprovechar debilidad o cambio de un competidor (subida de tarifas, problemas técnicos, cambio de política)
+- Adaptar oferta a nueva regulación (cookies, GDPR, ePrivacy) antes que la competencia
+
+## Cómo analizar cada noticia
+Para cada noticia, razona internamente en este orden antes de escribir el "Para Propelbon:":
+1. ¿Afecta a un vertical de anunciantes con los que trabajamos o podríamos trabajar?
+2. ¿Crea una razón para llamar a un anunciante (nuevo problema, nueva oportunidad de canal)?
+3. ¿Debilita o fortalece a algún competidor (Awin, CJ, TD, TT, etc.)?
+4. ¿Cambia algo en cómo funciona el tracking, las cookies o la atribución (afecta a todos los programas)?
+5. ¿Tiene impacto directo en España/Portugal o en los mercados de expansión?
+
+El "Para Propelbon:" debe nombrar una acción específica, no una observación genérica.
+MAL: "Oportunidad para nuestros anunciantes de expandirse a nuevos mercados."
+BIEN: "Anunciantes de moda y electrónica en España que venden en marketplaces deberían plantearse abrir canal afiliación para compensar — prospección prioritaria esta semana."
+
+## Señal del día
+Elige la noticia con mayor impacto estratégico para Propelbon. La señal debe terminar siempre con:
+"▶ Acción esta semana: [acción concreta, específica, ejecutable por el equipo de Propelbon]"
+Ejemplos de acciones válidas: "Revisar qué anunciantes de [vertical] tenemos en [red competidora] y preparar propuesta de migración", "Llamar a los 5 anunciantes de viajes sin programa de afiliación activo en ES", "Actualizar propuesta de valor de Propelbon destacando [ventaja concreta frente a X]".
+
+## Estilo
 - Idioma: español (términos técnicos en inglés cuando son estándar del sector)
-- Tono: directo, analítico, sin fluff. Como un colega senior del sector.
-- Perspectiva siempre desde Propelbon: ¿qué significa esto para nuestros anunciantes o publishers?
-- Si la noticia viene de Twitter/X o LinkedIn, mencionarlo sutilmente (ej: "según publica en X...")
+- Tono: directo, analítico, como un colega senior del equipo comercial. Sin fluff.
+- Si la noticia viene de Twitter/X o LinkedIn, mencionarlo sutilmente.
+- Formato de salida: mrkdwn de Slack (*negrita*, _cursiva_, <URL|texto>).
 
-Formato de salida: mrkdwn de Slack (usar *negrita*, _cursiva_, <URL|texto>).
+## Ámbito geográfico
+Prioriza España, Portugal y Europa (UK, Francia, Alemania, Italia, DACH, Nordics). Excluye noticias exclusivamente del mercado US salvo que tengan impacto directo en Europa o en redes de afiliación globales.
 """
 
 def build_user_prompt(search_results, source_texts, published_urls, published_topics, published_domains, topic_keywords):
@@ -231,9 +276,10 @@ def build_user_prompt(search_results, source_texts, published_urls, published_to
         for r in search_results
     ])
     sources_block = "\n\n---\n\n".join([
-        f"FUENTE: {url}\n{text[:600]}"
+        f"FUENTE: {url}\n{text}"
         for url, text in source_texts.items()
     ])
+    n_sources     = len(source_texts)
     published_list         = "\n".join(list(published_urls)[:80])
     published_topics_list  = "\n".join(published_topics[:60])
     published_domains_list = "\n".join(list(published_domains)[:60])
@@ -256,7 +302,11 @@ def build_user_prompt(search_results, source_texts, published_urls, published_to
 === RESULTADOS DE BÚSQUEDA (incluye Twitter/X, LinkedIn, blogs) ===
 {search_block}
 
-=== CONTENIDO DE FUENTES DIRECTAS (blogs de redes + industria + ecommerce) ===
+=== CONTENIDO DE FUENTES DIRECTAS ({n_sources} fuentes consultadas) ===
+Las fuentes llegan sin orden de importancia. Antes de redactar, evalúa cada una
+y prioriza las que aporten noticias con mayor impacto real para Propelbon hoy.
+Ignora fuentes con contenido genérico, evergreen o sin novedad en las últimas 72h.
+
 {sources_block}
 
 ---
@@ -285,9 +335,9 @@ _[N fuentes consultadas · redes: Awin, TD, Admitad, impact, Partnerize, Webgain
 ──────────────────────────
 📦 *ECOMMERCE*
 
-*[Titular noticia 1]*
-[2-3 frases resumen con datos concretos]
-💡 _Para Propelbon: [implicación concreta]_
+*[Titular claro y directo]*
+[2-3 frases: qué pasó, datos concretos, por qué importa en el sector]
+💡 _Para Propelbon: [acción o implicación específica — qué vertical de anunciantes afecta, si es oportunidad de captación/migración, o si cambia algo operativo en los programas]_
 🔗 <URL|Leer noticia>
 
 [repetir por cada item ecommerce]
@@ -295,12 +345,19 @@ _[N fuentes consultadas · redes: Awin, TD, Admitad, impact, Partnerize, Webgain
 ──────────────────────────
 🤝 *AFILIACIÓN & PERFORMANCE*
 
-[items igual]
+*[Titular claro y directo]*
+[2-3 frases: qué pasó, datos concretos, por qué importa en afiliación]
+💡 _Para Propelbon: [acción específica — ¿debilita a un competidor?, ¿cambia el tracking o la atribución?, ¿es razón para llamar a un tipo de anunciante?]_
+🔗 <URL|Leer noticia>
+
+[repetir por cada item afiliación]
 
 ──────────────────────────
 ⚡ *SEÑAL DEL DÍA*
-*[Titular del item de mayor impacto estratégico]*
-[Contexto ampliado + acción concreta para esta semana]
+*[Titular del item de mayor impacto para el negocio de Propelbon]*
+[2-3 frases de contexto ampliado con datos]
+💡 _Por qué importa a Propelbon: [análisis específico — vertical afectado, competidor involucrado, mercado ES/PT/EU]_
+▶ _Acción esta semana: [acción concreta y ejecutable por el equipo comercial de Propelbon]_
 🔗 <URL|Leer noticia>
 
 IMPORTANTE: devuelve SOLO el mensaje mrkdwn, sin texto previo ni posterior.
@@ -349,7 +406,7 @@ def send_to_slack(text: str) -> str:
 
 async def main():
     print(f"\n=== Propelbon Daily Brief — {TODAY} ===\n")
-    print(f"Fuentes hoy: {SELECTED_NETWORKS + SELECTED_INDUSTRY + SELECTED_ECOMMERCE}\n")
+    print(f"Fuentes configuradas: {len(ALL_SOURCES)} ({len(NETWORK_BLOGS)} redes + {len(INDUSTRY_BLOGS)} industria + {len(ECOMMERCE_SOURCES)} ecommerce)\n")
 
     print("▸ PASO 0: Leyendo historial de Slack...")
     published_urls, published_topics, published_domains, topic_keywords = get_published_urls_and_topics()
