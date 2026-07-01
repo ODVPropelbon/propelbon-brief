@@ -1,17 +1,19 @@
 """
-Propelbon Daily Brief Ã¢ÂÂ script autÃÂ³nomo (stack 100% gratuito)
+Propelbon Daily Brief — script autónomo (stack 100% gratuito)
 Secrets necesarios (env vars o GitHub Secrets):
-  GROQ_API_KEY         (Groq Ã¢ÂÂ gratis: console.groq.com, modelo llama-3.3-70b)
+  GROQ_API_KEY         (Groq — gratis: console.groq.com, modelo llama-3.3-70b)
   SLACK_BOT_TOKEN      (token del bot con permisos channels:history + chat:write)
   SLACK_CHANNEL_ID     (C0B93TX9SQL)
   SLACK_WEBHOOK_URL    (opcional)
-  TAVILY_API_KEY       (Tavily free tier: 1.000 bÃÂºsquedas/mes gratis)
+  TAVILY_API_KEY       (Tavily free tier: 1.000 búsquedas/mes gratis)
 """
 
 import os
 import asyncio
 import httpx
+import re
 from datetime import datetime
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from groq import Groq
@@ -20,7 +22,7 @@ from slack_sdk.errors import SlackApiError
 from tavily import TavilyClient
 
 
-# Ã¢ÂÂÃ¢ÂÂ ConfiguraciÃÂ³n Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Configuración ──────────────────────────────────────────────────────────────
 
 GROQ_API_KEY      = os.environ["GROQ_API_KEY"]
 SLACK_BOT_TOKEN   = os.environ["SLACK_BOT_TOKEN"]
@@ -32,7 +34,7 @@ MADRID_TZ = ZoneInfo("Europe/Madrid")
 TODAY = datetime.now(MADRID_TZ).strftime("%d %B %Y")
 TODAY_SHORT = datetime.now(MADRID_TZ).strftime("%-d %b %Y")
 
-# Ã¢ÂÂÃ¢ÂÂ Fuentes: blogs de redes de afiliaciÃÂ³n Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Fuentes: blogs de redes de afiliación ──────────────────────────────────────
 NETWORK_BLOGS = [
     "https://www.awin.com/us/news-and-events/awin-news",
     "https://blog.tradedoubler.com/",
@@ -44,7 +46,7 @@ NETWORK_BLOGS = [
     "https://blog.cj.com/",
 ]
 
-# Ã¢ÂÂÃ¢ÂÂ Fuentes: blogs especializados EN + ES Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Fuentes: blogs especializados EN + ES ──────────────────────────────────────
 INDUSTRY_BLOGS = [
     "https://hellopartner.com/tag/newsdesk/",
     "https://www.affiversemedia.com/news/",
@@ -57,7 +59,7 @@ INDUSTRY_BLOGS = [
     "https://iabspain.es/category/noticias/",
 ]
 
-# Ã¢ÂÂÃ¢ÂÂ Fuentes: ecommerce Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Fuentes: ecommerce ──────────────────────────────────────────────────────────
 ECOMMERCE_SOURCES = [
     "https://www.ecommercenews.eu/news/",
     "https://channelx.world",
@@ -69,7 +71,7 @@ ECOMMERCE_SOURCES = [
     "https://www.shopify.com/blog",
 ]
 
-# Rotar fuentes por dÃÂ­a (0=lunes): seleccionar 3 de cada pool
+# Rotar fuentes por día (0=lunes): seleccionar 3 de cada pool
 _dow = datetime.now(MADRID_TZ).weekday()
 def _rotate(pool, n=3):
     start = (_dow * n) % len(pool)
@@ -80,13 +82,20 @@ SELECTED_INDUSTRY  = _rotate(INDUSTRY_BLOGS, 3)
 SELECTED_ECOMMERCE = _rotate(ECOMMERCE_SOURCES, 3)
 
 
-# Ã¢ÂÂÃ¢ÂÂ PASO 0: Leer historial de Slack Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── PASO 0: Leer historial de Slack ────────────────────────────────────────────
 
-def get_published_urls_and_topics(limit_messages: int = 200) -> tuple[set[str], list[str]]:
-    import re
+def get_published_urls_and_topics(limit_messages: int = 300) -> tuple[set[str], list[str], set[str], list[str]]:
+    """
+    Devuelve:
+    - urls: todas las URLs publicadas en el canal
+    - topics: todos los titulares publicados
+    - domains: todos los dominios ya usados
+    - topic_keywords: palabras clave de empresa/hecho extraídas de los titulares
+    """
     client = WebClient(token=SLACK_BOT_TOKEN)
     urls: set[str] = set()
     topics: list[str] = []
+    domains: set[str] = set()
     cursor = None
 
     while True:
@@ -103,6 +112,10 @@ def get_published_urls_and_topics(limit_messages: int = 200) -> tuple[set[str], 
             text = msg.get("text", "")
             for url in re.findall(r"<(https?://[^|>]+)[|>]", text):
                 urls.add(url)
+                try:
+                    domains.add(urlparse(url).netloc)
+                except Exception:
+                    pass
             for title in re.findall(r"\*([^*]{10,120})\*", text):
                 topics.append(title.strip())
 
@@ -110,21 +123,46 @@ def get_published_urls_and_topics(limit_messages: int = 200) -> tuple[set[str], 
         if not cursor or len(urls) > limit_messages:
             break
 
-    print(f"[Slack] {len(urls)} URLs y {len(topics)} titulares cargados del historial")
-    return urls, topics
+    # Extraer keywords temáticas: empresa + acción clave de cada titular
+    # Para ayudar al LLM a detectar el mismo hecho con distintas URLs
+    topic_keywords = _extract_topic_keywords(topics)
+
+    print(f"[Slack] {len(urls)} URLs · {len(topics)} titulares · {len(domains)} dominios · {len(topic_keywords)} keywords temáticas")
+    return urls, topics, domains, topic_keywords
 
 
-# Ã¢ÂÂÃ¢ÂÂ PASO 1: BÃÂºsquedas de noticias Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+def _extract_topic_keywords(topics: list[str]) -> list[str]:
+    """
+    De cada titular extrae una frase corta empresa+hecho para
+    detectar duplicados temáticos aunque la URL o fuente sea distinta.
+    Ejemplo: "TikTok Shop se expande a Europa" → "tiktok shop europa expansion"
+    """
+    keywords = []
+    for t in topics[:80]:
+        # Normalizar: minúsculas, quitar símbolos, quedarse con palabras sustantivas
+        cleaned = re.sub(r"[^\w\s]", " ", t.lower())
+        words = cleaned.split()
+        # Filtrar stopwords básicas
+        stopwords = {"el","la","los","las","de","del","en","un","una","y","a","que",
+                     "se","su","por","para","con","es","al","the","a","an","of","in",
+                     "and","to","for","is","it","on","at","by","as","are","was","has"}
+        meaningful = [w for w in words if len(w) > 3 and w not in stopwords]
+        if len(meaningful) >= 2:
+            keywords.append(" ".join(meaningful[:6]))
+    return keywords
+
+
+# ── PASO 1: Búsquedas de noticias ──────────────────────────────────────────────
 
 def search_news(tavily: TavilyClient) -> list[dict]:
     queries = [
         # Noticias generales ecommerce
         f"ecommerce news Europe Spain UK {TODAY}",
-        f"ecommerce EspaÃÂ±a noticias {TODAY}",
-        # Noticias de afiliaciÃÂ³n
+        f"ecommerce España noticias {TODAY}",
+        # Noticias de afiliación
         f"affiliate marketing news {TODAY}",
         f"performance marketing news {TODAY}",
-        # Noticias especÃÂ­ficas de redes
+        # Noticias específicas de redes
         f"Awin Tradedoubler impact.com Partnerize TradeTracker affiliate network news Europe {TODAY}",
         f"Admitad Webgains TradeTracker CJ affiliate network news {TODAY}",
         # Social: Twitter/X
@@ -132,8 +170,8 @@ def search_news(tavily: TavilyClient) -> list[dict]:
         f"site:x.com OR site:twitter.com ecommerce performance marketing {TODAY}",
         # LinkedIn
         f"site:linkedin.com affiliate marketing performance ecommerce {TODAY}",
-        # Tendencias
-        f"TikTok Shop ecommerce Europe Spain affiliate {TODAY}",
+        # Tendencias (genérico, no ancla a una noticia concreta)
+        f"ecommerce platforms Europe new markets expansion {TODAY}",
         f"cookie tracking privacy affiliate marketing {TODAY}",
     ]
 
@@ -145,7 +183,7 @@ def search_news(tavily: TavilyClient) -> list[dict]:
         except Exception as e:
             print(f"[Tavily] Error en '{q}': {e}")
 
-    print(f"[Tavily] {len(results)} resultados de bÃÂºsqueda obtenidos")
+    print(f"[Tavily] {len(results)} resultados de búsqueda obtenidos")
     return results
 
 
@@ -168,46 +206,54 @@ async def fetch_all_sources() -> dict[str, str]:
     return results
 
 
-# Ã¢ÂÂÃ¢ÂÂ PASO 2-4: Groq (Llama 3.3 70B) redacta el briefing Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── PASO 2-4: Groq (Llama 3.3 70B) redacta el briefing ──────────────────────
 
-SYSTEM_PROMPT = """Eres el asistente de noticias de Propelbon, empresa espaÃÂ±ola de marketing de afiliaciÃÂ³n y performance que trabaja con anunciantes ecommerce en EspaÃÂ±a y Europa.
+SYSTEM_PROMPT = """Eres el asistente de noticias de Propelbon, empresa española de marketing de afiliación y performance que trabaja con anunciantes ecommerce en España y Europa.
 
 Tu tarea: redactar el briefing diario de noticias para el canal #noticias de Slack.
 
 ÁMBITO GEOGRÁFICO: Prioriza noticias de España, Europa (UK, Francia, Alemania, Italia, DACH, Nordics) y mercados globales con impacto en Europa. Excluye o da muy poco peso a noticias exclusivamente del mercado estadounidense salvo que tengan impacto directo en Europa o en las redes de afiliación globales.
 
-Fuentes que se consultan cada dÃÂ­a: blogs oficiales de redes de afiliaciÃÂ³n (Awin, Tradedoubler, Admitad, impact.com, Partnerize, Webgains, TradeTracker, CJ), blogs especializados (PerformanceIN, Hello Partner, Affiverse, MarTech, Marketing Directo, IAB Spain), Twitter/X y LinkedIn de estas redes, y medios de ecommerce (eCommerce News, Retail Dive, Digital Commerce 360, etc.).
+Fuentes que se consultan cada día: blogs oficiales de redes de afiliación (Awin, Tradedoubler, Admitad, impact.com, Partnerize, Webgains, TradeTracker, CJ), blogs especializados (PerformanceIN, Hello Partner, Affiverse, MarTech, Marketing Directo, IAB Spain), Twitter/X y LinkedIn de estas redes, y medios de ecommerce (eCommerce News, Retail Dive, Digital Commerce 360, etc.).
 
 Estilo:
-- Idioma: espaÃÂ±ol (tÃÂ©rminos tÃÂ©cnicos en inglÃÂ©s cuando son estÃÂ¡ndar del sector)
-- Tono: directo, analÃÂ­tico, sin fluff. Como un colega senior del sector.
-- Perspectiva siempre desde Propelbon: ÃÂ¿quÃÂ© significa esto para nuestros anunciantes o publishers?
-- Si la noticia viene de Twitter/X o LinkedIn, mencionarlo sutilmente (ej: "segÃÂºn publica en X...")
+- Idioma: español (términos técnicos en inglés cuando son estándar del sector)
+- Tono: directo, analítico, sin fluff. Como un colega senior del sector.
+- Perspectiva siempre desde Propelbon: ¿qué significa esto para nuestros anunciantes o publishers?
+- Si la noticia viene de Twitter/X o LinkedIn, mencionarlo sutilmente (ej: "según publica en X...")
 
 Formato de salida: mrkdwn de Slack (usar *negrita*, _cursiva_, <URL|texto>).
 """
 
-def build_user_prompt(search_results, source_texts, published_urls, published_topics):
+def build_user_prompt(search_results, source_texts, published_urls, published_topics, published_domains, topic_keywords):
     search_block = "\n\n".join([
-        f"TÃÂTULO: {r.get('title','')}\nURL: {r.get('url','')}\nRESUMEN: {r.get('content','')[:200]}"
+        f"TÍTULO: {r.get('title','')}\nURL: {r.get('url','')}\nRESUMEN: {r.get('content','')[:200]}"
         for r in search_results
     ])
     sources_block = "\n\n---\n\n".join([
         f"FUENTE: {url}\n{text[:600]}"
         for url, text in source_texts.items()
     ])
-    published_list = "\n".join(list(published_urls)[:40])
-    published_topics_list = "\n".join(published_topics[:30])
+    published_list         = "\n".join(list(published_urls)[:80])
+    published_topics_list  = "\n".join(published_topics[:60])
+    published_domains_list = "\n".join(list(published_domains)[:60])
+    topic_keywords_list    = "\n".join(topic_keywords[:60])
 
     return f"""Fecha de hoy: {TODAY}
 
-=== HISTORIAL DE URLS YA PUBLICADAS EN #noticias (NO repetir) ===
+=== URLS YA PUBLICADAS EN #noticias (NO repetir) ===
 {published_list}
+
+=== DOMINIOS YA USADOS EN BRIEFINGS ANTERIORES ===
+{published_domains_list}
 
 === TITULARES YA PUBLICADOS (NO repetir temas sustancialmente iguales) ===
 {published_topics_list}
 
-=== RESULTADOS DE BÃÂSQUEDA (incluye Twitter/X, LinkedIn, blogs) ===
+=== KEYWORDS TEMÁTICAS YA CUBIERTAS (empresa + hecho clave) ===
+{topic_keywords_list}
+
+=== RESULTADOS DE BÚSQUEDA (incluye Twitter/X, LinkedIn, blogs) ===
 {search_block}
 
 === CONTENIDO DE FUENTES DIRECTAS (blogs de redes + industria + ecommerce) ===
@@ -217,101 +263,115 @@ def build_user_prompt(search_results, source_texts, published_urls, published_to
 
 Redacta el briefing diario siguiendo estas reglas ESTRICTAS:
 
-1. FILTRO DE DUPLICADOS: Descarta cualquier noticia cuya URL ya estÃÂ© en el historial o cuyo tema sea sustancialmente idÃÂ©ntico a uno ya cubierto.
+1. FILTRO DE DUPLICADOS (aplicar en este orden):
+   a) URL exacta: si la URL ya está en la lista de URLs publicadas → DESCARTAR
+   b) Tema idéntico: si el hecho que describe la noticia ya está cubierto en los titulares o keywords anteriores → DESCARTAR, aunque la URL sea distinta y aunque la fuente sea diferente
+      - Ejemplo: "TikTok Shop expands to Europe" / "TikTok Shop se expande a Austria" / "TikTok Shop launches in Poland" son el MISMO hecho → si aparece en el historial, DESCARTAR toda variante
+      - Ejemplo: "Awin affiliate trends report 2026" ya publicado → DESCARTAR cualquier otra cobertura del mismo informe
+   c) Dominio repetido: si el dominio ya está en la lista de dominios usados, solo incluirlo si la noticia es claramente distinta a cualquier otra ya publicada de ese dominio
+   d) Si tras aplicar los filtros no quedan suficientes noticias nuevas, escribe en esa sección: "_Poco movimiento hoy en este área. La próxima actualización llegará mañana._" — nunca repitas noticias ya publicadas.
 
-2. SELECCIÃÂN:
-   - ECOMMERCE: 2-4 items. Priorizar EspaÃÂ±a/Europa: regulaciÃÂ³n EU, grandes retailers europeos, plataformas con impacto en Europa (Amazon EU, Shopify, TikTok Shop Europe). Descartar noticias exclusivas del mercado US salvo impacto global.
-   - AFILIACIÃÂN & PERFORMANCE: 2-4 items. Priorizar noticias con impacto en Europa: redes (Awin, Tradedoubler, TradeTracker, impact.com, Partnerize, Webgains, CJ), normativa ePrivacy/GDPR, tracking, nuevos programas en EspaÃÂ±a/EU. Excluir noticias exclusivamente del mercado US.
-   - MÃÂ¡ximo 2 items del mismo dominio por briefing.
-   - Solo noticias de las ÃÂºltimas 72h salvo que sean de alto impacto.
+2. SELECCIÓN (solo noticias que pasen el filtro):
+   - ECOMMERCE: 2-4 items. Priorizar España/Europa: regulación EU, grandes retailers europeos, plataformas con impacto en Europa. Descartar noticias exclusivas del mercado US salvo impacto global.
+   - AFILIACIÓN & PERFORMANCE: 2-4 items. Priorizar noticias con impacto en Europa: redes (Awin, Tradedoubler, TradeTracker, impact.com, Partnerize, Webgains, CJ), normativa ePrivacy/GDPR, tracking, nuevos programas en España/EU.
+   - Máximo 2 items del mismo dominio por briefing.
+   - Solo noticias de las últimas 72h salvo que sean de alto impacto y no hayan sido cubiertas nunca.
 
 3. FORMATO DE SALIDA (mrkdwn exacto, sin texto adicional):
 
-Ã°ÂÂÂ° *Propelbon Daily Brief ÃÂ· {TODAY_SHORT}*
-_[N fuentes consultadas ÃÂ· redes: Awin, TD, Admitad, impact, Partnerize, Webgains, CJ, TT]_
+📰 *Propelbon Daily Brief · {TODAY_SHORT}*
+_[N fuentes consultadas · redes: Awin, TD, Admitad, impact, Partnerize, Webgains, CJ, TT]_
 
-Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
-Ã°ÂÂÂ¦ *ECOMMERCE*
+──────────────────────────
+📦 *ECOMMERCE*
 
 *[Titular noticia 1]*
 [2-3 frases resumen con datos concretos]
-Ã°ÂÂÂ¡ _Para Propelbon: [implicaciÃÂ³n concreta]_
-Ã°ÂÂÂ <URL|Leer noticia>
+💡 _Para Propelbon: [implicación concreta]_
+🔗 <URL|Leer noticia>
 
 [repetir por cada item ecommerce]
 
-Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
-Ã°ÂÂ¤Â *AFILIACIÃÂN & PERFORMANCE*
+──────────────────────────
+🤝 *AFILIACIÓN & PERFORMANCE*
 
 [items igual]
 
-Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
-Ã¢ÂÂ¡ *SEÃÂAL DEL DÃÂA*
-*[Titular del item de mayor impacto estratÃÂ©gico]*
-[Contexto ampliado + acciÃÂ³n concreta para esta semana]
-Ã°ÂÂÂ <URL|Leer noticia>
+──────────────────────────
+⚡ *SEÑAL DEL DÍA*
+*[Titular del item de mayor impacto estratégico]*
+[Contexto ampliado + acción concreta para esta semana]
+🔗 <URL|Leer noticia>
 
 IMPORTANTE: devuelve SOLO el mensaje mrkdwn, sin texto previo ni posterior.
 """
 
 
-def generate_briefing(search_results, source_texts, published_urls, published_topics):
+def generate_briefing(search_results, source_texts, published_urls, published_topics, published_domains, topic_keywords):
     client = Groq(api_key=GROQ_API_KEY)
-    user_prompt = build_user_prompt(search_results, source_texts, published_urls, published_topics)
+    user_prompt = build_user_prompt(
+        search_results, source_texts,
+        published_urls, published_topics,
+        published_domains, topic_keywords
+    )
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
+            {"role": "user",   "content": user_prompt},
         ],
-        temperature=0.5,
+        temperature=0.4,
         max_tokens=2500,
     )
     return response.choices[0].message.content.strip()
 
 
-# Ã¢ÂÂÃ¢ÂÂ PASO 5: Enviar a Slack Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── PASO 5: Enviar a Slack ──────────────────────────────────────────────────────
 
 def send_to_slack(text: str) -> str:
     if SLACK_WEBHOOK_URL:
         try:
             r = httpx.post(SLACK_WEBHOOK_URL, json={"text": text}, timeout=10)
             if r.status_code == 200 and r.text == "ok":
-                print("[Slack] Enviado vÃÂ­a webhook Ã¢ÂÂ")
+                print("[Slack] Enviado vía webhook ✓")
                 return "webhook"
-            print(f"[Slack] Webhook fallÃÂ³ ({r.status_code}), usando bot token...")
+            print(f"[Slack] Webhook falló ({r.status_code}), usando bot token...")
         except Exception as e:
             print(f"[Slack] Webhook error: {e}, usando bot token...")
 
     client = WebClient(token=SLACK_BOT_TOKEN)
     resp = client.chat_postMessage(channel=SLACK_CHANNEL_ID, text=text)
-    print(f"[Slack] Enviado vÃÂ­a bot token Ã¢ÂÂ Ã¢ÂÂ {resp['message']['ts']}")
+    print(f"[Slack] Enviado vía bot token ✓ → {resp['message']['ts']}")
     return resp["message"]["ts"]
 
 
-# Ã¢ÂÂÃ¢ÂÂ Main Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Main ────────────────────────────────────────────────────────────────────────
 
 async def main():
-    print(f"\n=== Propelbon Daily Brief Ã¢ÂÂ {TODAY} ===\n")
+    print(f"\n=== Propelbon Daily Brief — {TODAY} ===\n")
     print(f"Fuentes hoy: {SELECTED_NETWORKS + SELECTED_INDUSTRY + SELECTED_ECOMMERCE}\n")
 
-    print("Ã¢ÂÂ PASO 0: Leyendo historial de Slack...")
-    published_urls, published_topics = get_published_urls_and_topics()
+    print("▸ PASO 0: Leyendo historial de Slack...")
+    published_urls, published_topics, published_domains, topic_keywords = get_published_urls_and_topics()
 
-    print("Ã¢ÂÂ PASO 1: Buscando noticias (Tavily + Twitter/X + LinkedIn + blogs)...")
+    print("▸ PASO 1: Buscando noticias (Tavily + Twitter/X + LinkedIn + blogs)...")
     tavily = TavilyClient(api_key=TAVILY_API_KEY)
     search_results = search_news(tavily)
     source_texts = await fetch_all_sources()
 
-    print("Ã¢ÂÂ PASO 2-4: Redactando briefing con Groq Llama 3.3 70B...")
-    briefing = generate_briefing(search_results, source_texts, published_urls, published_topics)
+    print("▸ PASO 2-4: Redactando briefing con Groq Llama 3.3 70B...")
+    briefing = generate_briefing(
+        search_results, source_texts,
+        published_urls, published_topics,
+        published_domains, topic_keywords
+    )
     print("\n--- BRIEFING GENERADO ---")
     print(briefing)
     print("-------------------------\n")
 
-    print("Ã¢ÂÂ PASO 5: Enviando a Slack...")
+    print("▸ PASO 5: Enviando a Slack...")
     send_to_slack(briefing)
-    print("\nÃ¢ÂÂ Briefing enviado correctamente.\n")
+    print("\n✓ Briefing enviado correctamente.\n")
 
 
 if __name__ == "__main__":
