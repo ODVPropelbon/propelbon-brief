@@ -372,7 +372,7 @@ def generate_briefing(search_results, source_texts, published_urls, published_to
         published_domains, topic_keywords
     )
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="llama-3.1-8b-instant",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": user_prompt},
