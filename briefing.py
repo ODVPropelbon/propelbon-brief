@@ -189,7 +189,7 @@ def search_news(tavily: TavilyClient) -> list[dict]:
     results = []
     for q in queries:
         try:
-            r = tavily.search(query=q, max_results=4, search_depth="advanced")
+            r = tavily.search(query=q, max_results=3, search_depth="advanced")
             results.extend(r.get("results", []))
         except Exception as e:
             print(f"[Tavily] Error en '{q}': {e}")
@@ -201,8 +201,8 @@ def search_news(tavily: TavilyClient) -> list[dict]:
 async def fetch_source(client: httpx.AsyncClient, url: str) -> str:
     try:
         r = await client.get(url, timeout=15, follow_redirects=True)
-        # 350 chars por fuente — suficiente para ver 2-3 titulares y juzgar relevancia
-        return r.text[:350]
+        # 120 chars por fuente — suficiente para capturar el primer titular
+        return r.text[:120]
     except Exception as e:
         return ""  # silencioso: fuentes que fallen simplemente no aportan contenido
 
@@ -272,7 +272,7 @@ Prioriza España, Portugal y Europa (UK, Francia, Alemania, Italia, DACH, Nordic
 
 def build_user_prompt(search_results, source_texts, published_urls, published_topics, published_domains, topic_keywords):
     search_block = "\n\n".join([
-        f"TÍTULO: {r.get('title','')}\nURL: {r.get('url','')}\nRESUMEN: {r.get('content','')[:200]}"
+        f"TÍTULO: {r.get('title','')}\nURL: {r.get('url','')}\nRESUMEN: {r.get('content','')[:100]}"
         for r in search_results
     ])
     sources_block = "\n\n---\n\n".join([
@@ -280,10 +280,10 @@ def build_user_prompt(search_results, source_texts, published_urls, published_to
         for url, text in source_texts.items()
     ])
     n_sources     = len(source_texts)
-    published_list         = "\n".join(list(published_urls)[:80])
-    published_topics_list  = "\n".join(published_topics[:60])
-    published_domains_list = "\n".join(list(published_domains)[:60])
-    topic_keywords_list    = "\n".join(topic_keywords[:60])
+    published_list         = "\n".join(list(published_urls)[:60])
+    published_topics_list  = "\n".join(published_topics[:40])
+    published_domains_list = "\n".join(list(published_domains)[:40])
+    topic_keywords_list    = "\n".join(topic_keywords[:40])
 
     return f"""Fecha de hoy: {TODAY}
 
