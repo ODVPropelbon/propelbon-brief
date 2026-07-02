@@ -406,7 +406,7 @@ def send_to_slack(text: str) -> str:
 
 async def main():
     print(f"\n=== Propelbon Daily Brief — {TODAY} ===\n")
-    print(f"Fuentes configuradas: {len(ALL_SOURCES)} ({len(NETWORK_BLOGS)} redes + {len(INDUSTY_BLOGS)} industria + {len(ECOMMERCE_SOURCES)} ecommerce)\n")
+    print(f"Fuentes configuradas: {len(ALL_SOURCES)} ({len(NETWORK_BLOGS)} redes + {len(INDUSTRY_BLOGS)} industria + {len(ECOMMERCE_SOURCES)} ecommerce)\n")
 
     print("▸ PASO 0: Leyendo historial de Slack...")
     published_urls, published_topics, published_domains, topic_keywords = get_published_urls_and_topics()
