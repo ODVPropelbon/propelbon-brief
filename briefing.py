@@ -299,7 +299,7 @@ def build_user_prompt(search_results, source_texts, published_urls, published_to
 === KEYWORDS TEMÁTICAS YA CUBIERTAS (empresa + hecho clave) ===
 {topic_keywords_list}
 
-=== RESULTADOS DE BÚSQUEDA (incluye Twitter/X, LinkedIn, blogs) ===
+=== RESULTADOS DE BÚSQUMDA (incluye Twitter/X, LinkedIn, blogs) ===
 {search_block}
 
 === CONTENIDO DE FUENTES DIRECTAS ({n_sources} fuentes consultadas) ===
@@ -390,7 +390,7 @@ def send_to_slack(text: str) -> str:
         try:
             r = httpx.post(SLACK_WEBHOOK_URL, json={"text": text}, timeout=10)
             if r.status_code == 200 and r.text == "ok":
-                print("[Slack] Enviado vía webhook ✓")
+                print("[Slack] Enviado via webhook ✓")
                 return "webhook"
             print(f"[Slack] Webhook falló ({r.status_code}), usando bot token...")
         except Exception as e:
@@ -398,7 +398,7 @@ def send_to_slack(text: str) -> str:
 
     client = WebClient(token=SLACK_BOT_TOKEN)
     resp = client.chat_postMessage(channel=SLACK_CHANNEL_ID, text=text)
-    print(f"[Slack] Enviado vía bot token ✓ → {resp['message']['ts']}")
+    print(f"[Slack] Enviado via bot token ✓ ��� {resp['message']['ts']}")
     return resp["message"]["ts"]
 
 
@@ -406,7 +406,7 @@ def send_to_slack(text: str) -> str:
 
 async def main():
     print(f"\n=== Propelbon Daily Brief — {TODAY} ===\n")
-    print(f"Fuentes configuradas: {len(ALL_SOURCES)} ({len(NETWORK_BLOGS)} redes + {len(INDUSTRY_BLOGS)} industria + {len(ECOMMERCE_SOURCES)} ecommerce)\n")
+    print(f"Fuentes configuradas: {len(ALL_SOURCES)} ({len(NETWORK_BLOGS)} redes + {len(INDUSTY_BLOGS)} industria + {len(ECOMMERCE_SOURCES)} ecommerce)\n")
 
     print("▸ PASO 0: Leyendo historial de Slack...")
     published_urls, published_topics, published_domains, topic_keywords = get_published_urls_and_topics()
